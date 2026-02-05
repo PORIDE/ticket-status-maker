@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>残席情報メーカー</title>
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel (JSX変換用) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class', 
+            theme: {
+                extend: {
+                    colors: {
+                        bg: {
+                            app: '#F9FAFB', 
+                            card: '#FFFFFF', 
+                            input: '#F3F4F6', 
+                        },
+                        text: {
+                            main: '#2C3E50', 
+                            sub: '#7F8C8D', 
+                            label: '#475569', 
+                        },
+                        accent: {
+                            main: '#6E7F8D', 
+                            highlight: '#6E7F8D', 
+                            hover: '#546370', 
+                            dark: '#1e293b', 
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['"Helvetica Neue"', 'Arial', '"Hiragino Kaku Gothic ProN"', '"Hiragino Sans"', 'Meiryo', 'sans-serif'],
+                    },
+                    boxShadow: {
+                        'soft': '0 2px 10px rgba(0, 0, 0, 0.03)',
+                        'floating': '0 10px 30px rgba(0, 0, 0, 0.08)',
+                    },
+                    animation: {
+                        'fade-in': 'fadeIn 0.5s ease-out forwards',
+                        'slide-up': 'slideUp 0.3s ease-out forwards',
+                    },
+                    keyframes: {
+                        fadeIn: {
+                            '0%': { opacity: '0', transform: 'translateY(10px)' },
+                            '100%': { opacity: '1', transform: 'translateY(0)' },
+                        },
+                        slideUp: {
+                            '0%': { opacity: '0', transform: 'translateY(20px)' },
+                            '100%': { opacity: '1', transform: 'translateY(0)' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- html2canvas -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+    <style>
+        body {
+            overscroll-behavior: none;
+            -webkit-user-select: none;
+            user-select: none;
+            background-color: #F9FAFB;
+            color: #2C3E50;
+        }
+        
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent; 
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1; 
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8; 
+        }
+        
+        .cursor-wait {
+            cursor: wait;
+        }
+        
+        input[type=range] {
+            -webkit-appearance: none; 
+            background: transparent; 
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #6E7F8D;
+            cursor: pointer;
+            margin-top: -6px; 
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #E2E8F0;
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useRef, useEffect } = React;
+
+        // --- アイコンコンポーネント (Lucide互換SVG) ---
+        const Icon = ({ children, className, ...props }) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className} {...props}>{children}</svg>
+        );
+        const Upload = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></Icon>;
+        const Download = (p) => <Icon {...p}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></Icon>;
+        const Type = (p) => <Icon {...p}><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></Icon>;
+        const X = (p) => <Icon {...p}><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></Icon>;
+        const Circle = (p) => <Icon {...p}><circle cx="12" cy="12" r="10"/></Icon>;
+        const Triangle = (p) => <Icon {...p}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></Icon>;
+        const Trash2 = (p) => <Icon {...p}><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></Icon>;
+        const Copy = (p) => <Icon {...p}><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></Icon>;
+        const Minus = (p) => <Icon {...p}><line x1="5" y1="12" x2="19" y2="12"/></Icon>;
+        const Palette = (p) => <Icon {...p}><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></Icon>;
+        const Pipette = (p) => <Icon {...p}><path d="M2 13.5V19a3 3 0 0 0 3 3h5.5"/><path d="M19.33 10.12 10.13 19.33"/><path d="m14 7 3 3"/><path d="m11.2 16.6-4.2-4.2a2 2 0 0 1 0-2.8l9.9-9.9a2 2 0 0 1 2.8 0l4.2 4.2a2 2 0 0 1 0 2.8l-9.9 9.9a2 2 0 0 1-2.8 0Z"/></Icon>;
+        const ChevronLeft = (p) => <Icon {...p}><path d="m15 18-6-6 6-6"/></Icon>;
+        const ChevronRight = (p) => <Icon {...p}><path d="m9 18 6-6-6-6"/></Icon>;
+        
+        // アプリアイコン
+        const AppIcon = (p) => (
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={p.className}>
+                {/* Calendar Rings */}
+                <path d="M8 2v4" />
+                <path d="M16 2v4" />
+                {/* Ticket Body with Notches */}
+                <path d="M3 6c0-1.1.9-2 2-2h14a2 2 0 0 1 2 2v3.5a2.5 2.5 0 0 0 0 5V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-3.5a2.5 2.5 0 0 0 0-5V6z" />
+                {/* Divider Line */}
+                <path d="M3 10h18" />
+                {/* Status Indicators */}
+                <circle cx="8" cy="16" r="2" />
+                <path d="M14 14l4 4m0-4l-4 4" />
+            </svg>
+        );
+
+        // --- ユーティリティ ---
+        const rgbToHex = (r, g, b) => "#" + [r, g, b].map(x => { const hex = x.toString(16); return hex.length === 1 ? '0' + hex : hex; }).join('');
+        
+        const getColorDistance = (c1, c2) => Math.sqrt(Math.pow(c1.r - c2.r, 2) + Math.pow(c1.g - c2.g, 2) + Math.pow(c1.b - c2.b, 2));
+
+        const extractDominantColors = (imageSrc, maxColors = 10) => {
+            return new Promise((resolve) => {
+                const img = new Image();
+                img.crossOrigin = "Anonymous";
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const ctx = canvas.getContext('2d');
+                    canvas.width = 150;
+                    canvas.height = 150 * (img.height / img.width);
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+                    const colorMap = {};
+                    for (let i = 0; i < imageData.length; i += 4) {
+                        const r = imageData[i], g = imageData[i + 1], b = imageData[i + 2], a = imageData[i + 3];
+                        if (a < 128) continue;
+                        const round = (val) => Math.round(val / 24) * 24;
+                        const key = `${round(r)},${round(g)},${round(b)}`;
+                        if (!colorMap[key]) colorMap[key] = { count: 0, r: round(r), g: round(g), b: round(b) };
+                        colorMap[key].count++;
+                    }
+                    const sortedColors = Object.values(colorMap).sort((a, b) => b.count - a.count);
+                    const distinctColors = [];
+                    const DISTANCE_THRESHOLD = 60;
+                    for (const color of sortedColors) {
+                        if (distinctColors.length >= maxColors) break;
+                        if (distinctColors.every(existing => getColorDistance(color, existing) > DISTANCE_THRESHOLD)) {
+                            distinctColors.push(color);
+                        }
+                    }
+                    resolve(distinctColors.map(c => rgbToHex(c.r, c.g, c.b)));
+                };
+                img.onerror = () => resolve([]);
+                img.src = imageSrc;
+            });
+        };
+
+        // --- html2canvasロード ---
+        const loadHtml2Canvas = () => {
+            return new Promise((resolve, reject) => {
+                if (window.html2canvas) {
+                    resolve(window.html2canvas);
+                    return;
+                }
+                // CDNはheadで読み込み済みだが念のため
+                const script = document.createElement('script');
+                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+                script.onload = () => resolve(window.html2canvas);
+                script.onerror = reject;
+                document.head.appendChild(script);
+            });
+        };
+
+        // --- コンポーネント: HomeScreen ---
+        const HomeScreen = ({ onStart }) => (
+            <div className="flex flex-col items-center justify-center min-h-screen bg-bg-app text-text-main p-6 text-center animate-fade-in">
+                <div className="max-w-md w-full space-y-12">
+                    <div className="flex justify-center mb-8">
+                        <div className="w-28 h-28 bg-accent-highlight rounded-3xl flex items-center justify-center shadow-xl shadow-accent-highlight/20 transform rotate-6 hover:rotate-0 transition-all duration-500 hover:scale-105 cursor-pointer">
+                            <AppIcon className="w-16 h-16 text-white" />
+                        </div>
+                    </div>
+                    
+                    <div className="space-y-4">
+                        <h1 className="text-3xl font-bold tracking-tight text-text-main">残席情報メーカー</h1>
+                        <p className="text-text-sub leading-relaxed text-sm sm:text-base">
+                            公演日程の画像に「空席（◯）」「完売（✕）」などのマークを簡単に追加できるツールです。<br/>
+                            会員登録不要、ブラウザだけですぐに使えます。
+                        </p>
+                    </div>
+
+                    <div className="pt-4 px-4">
+                        <button 
+                            onClick={onStart}
+                            className="w-full py-4 px-6 bg-accent-highlight text-white font-bold text-lg rounded-2xl shadow-lg shadow-accent-highlight/30 transition-all duration-300 ease-out hover:bg-accent-hover hover:scale-[1.02] active:scale-95 flex items-center justify-center gap-3 group"
+                        >
+                            <span>はじめる</span>
+                            <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                        </button>
+                    </div>
+
+                    <div className="pt-12 text-xs text-text-sub space-y-1 opacity-70">
+                        <p>Developed by</p>
+                        <p className="font-bold text-text-main text-sm">PORIDE / のりのり</p>
+                    </div>
+                </div>
+            </div>
+        );
+
+        // --- コンポーネント: EditorScreen ---
+        const EditorScreen = ({ onBack }) => {
+            const [image, setImage] = useState(null);
+            const [imageDimensions, setImageDimensions] = useState({ width: 0, height: 0 });
+            const [scale, setScale] = useState(1);
+            const [marks, setMarks] = useState([]);
+            const [selectedId, setSelectedId] = useState(null);
+            const [isDragging, setIsDragging] = useState(false);
+            const [extractedColors, setExtractedColors] = useState([]);
+            const [snapLines, setSnapLines] = useState([]);
+            const [isSaving, setIsSaving] = useState(false);
+            const [isPickingColor, setIsPickingColor] = useState(false);
+
+            const workspaceRef = useRef(null);
+            const containerRef = useRef(null);
+            const imageRef = useRef(null);
+            const dragItemRef = useRef(null);
+
+            const [currentStyle, setCurrentStyle] = useState({
+                color: '#2C3E50', thickness: 8, size: 80, fontFamily: 'sans-serif', variant: 'clean'
+            });
+
+            const handleImageUpload = (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = async (event) => {
+                        const result = event.target.result;
+                        const img = new Image();
+                        img.onload = () => {
+                            const width = img.naturalWidth;
+                            const height = img.naturalHeight;
+                            setImageDimensions({ width, height });
+                            setImage(result);
+                            setMarks([]);
+                            calculateScale(width, height);
+                            const shortSide = Math.min(width, height);
+                            const autoSize = Math.round(shortSide * 0.12);
+                            const autoThickness = Math.max(5, Math.round(autoSize / 12));
+                            setCurrentStyle(prev => ({ ...prev, size: Math.max(50, autoSize), thickness: autoThickness }));
+                        };
+                        img.src = result;
+                        const colors = await extractDominantColors(result, 10);
+                        setExtractedColors(colors);
+                    };
+                    reader.readAsDataURL(file);
+                }
+            };
+
+            const calculateScale = (imgW, imgH) => {
+                if (!workspaceRef.current || !imgW || !imgH) return;
+                const workspace = workspaceRef.current;
+                const padding = 40;
+                const availW = workspace.clientWidth - padding;
+                const availH = workspace.clientHeight - padding;
+                const scaleW = availW / imgW;
+                const scaleH = availH / imgH;
+                const newScale = Math.min(scaleW, scaleH, 1);
+                setScale(newScale);
+            };
+
+            useEffect(() => {
+                const handleResize = () => {
+                    if (imageDimensions.width) calculateScale(imageDimensions.width, imageDimensions.height);
+                };
+                window.addEventListener('resize', handleResize);
+                return () => window.removeEventListener('resize', handleResize);
+            }, [imageDimensions]);
+
+            const addMark = (type) => {
+                if (!image) return;
+                const newMark = {
+                    id: Date.now(), type, 
+                    x: imageDimensions.width / 2, y: imageDimensions.height / 2,
+                    text: type === 'text' ? '00:00' : '',
+                    style: { ...currentStyle }
+                };
+                setMarks([...marks, newMark]);
+                setSelectedId(newMark.id);
+            };
+
+            const updateMark = (id, updates) => setMarks(marks.map(m => m.id === id ? { ...m, ...updates } : m));
+            
+            const updateSelectedMarkStyle = (key, value) => {
+                if (selectedId) updateMark(selectedId, { style: { ...marks.find(m => m.id === selectedId).style, [key]: value } });
+                setCurrentStyle(prev => ({ ...prev, [key]: value }));
+            };
+
+            const deleteSelected = () => {
+                setMarks(marks.filter(m => m.id !== selectedId));
+                setSelectedId(null);
+            };
+
+            const duplicateSelected = () => {
+                const mark = marks.find(m => m.id === selectedId);
+                if (mark) {
+                    setMarks([...marks, { ...mark, id: Date.now(), x: mark.x + mark.style.size * 0.5, y: mark.y + mark.style.size * 0.5 }]);
+                }
+            };
+
+            const handleEyedropper = async () => {
+                if (window.EyeDropper) {
+                    try {
+                        const result = await new window.EyeDropper().open();
+                        updateSelectedMarkStyle('color', result.sRGBHex);
+                    } catch (e) {}
+                } else {
+                    setIsPickingColor(!isPickingColor);
+                    setSelectedId(null);
+                }
+            };
+
+            const handlePointerDown = (e, id) => {
+                if (isPickingColor) return;
+                e.stopPropagation();
+                setSelectedId(id);
+                setIsDragging(true);
+                const mark = marks.find(m => m.id === id);
+                dragItemRef.current = { id, startX: e.clientX, startY: e.clientY, initialX: mark.x, initialY: mark.y };
+                e.target.setPointerCapture(e.pointerId);
+            };
+
+            const handlePointerMove = (e) => {
+                if (isDragging && dragItemRef.current) {
+                    const { id, startX, startY, initialX, initialY } = dragItemRef.current;
+                    let dx = (e.clientX - startX) / scale, dy = (e.clientY - startY) / scale;
+                    let newX = initialX + dx, newY = initialY + dy;
+                    const activeGuides = [];
+                    marks.forEach(other => {
+                        if (other.id === id) return;
+                        if (Math.abs(newX - other.x) < 15 / scale) { newX = other.x; activeGuides.push({ type: 'vertical', x: other.x }); }
+                        if (Math.abs(newY - other.y) < 15 / scale) { newY = other.y; activeGuides.push({ type: 'horizontal', y: other.y }); }
+                    });
+                    setSnapLines(activeGuides);
+                    updateMark(id, { x: newX, y: newY });
+                }
+            };
+
+            const handlePointerUp = () => { setIsDragging(false); dragItemRef.current = null; setSnapLines([]); };
+
+            const pickColorFromImage = (e) => {
+                if (!imageRef.current) return;
+                const rect = containerRef.current.getBoundingClientRect();
+                const x = Math.floor((e.clientX - rect.left) / scale);
+                const y = Math.floor((e.clientY - rect.top) / scale);
+                const canvas = document.createElement('canvas');
+                canvas.width = imageDimensions.width;
+                canvas.height = imageDimensions.height;
+                canvas.getContext('2d').drawImage(imageRef.current, 0, 0);
+                const p = canvas.getContext('2d').getImageData(x, y, 1, 1).data;
+                updateSelectedMarkStyle('color', rgbToHex(p[0], p[1], p[2]));
+                setIsPickingColor(false);
+            };
+
+            const handleDownload = async () => {
+                if (!containerRef.current) return;
+                setIsSaving(true);
+                const wasSelected = selectedId;
+                const wasPicking = isPickingColor;
+                setSelectedId(null); setIsPickingColor(false); setSnapLines([]);
+                await new Promise(r => setTimeout(r, 100));
+
+                try {
+                    const clone = containerRef.current.cloneNode(true);
+                    const wrapper = document.createElement('div');
+                    Object.assign(wrapper.style, { position: 'fixed', left: '-9999px', top: '0', width: `${imageDimensions.width}px`, height: `${imageDimensions.height}px`, zIndex: '-9999' });
+                    Object.assign(clone.style, { transform: 'none', width: '100%', height: '100%', border: 'none', boxShadow: 'none' });
+                    wrapper.appendChild(clone);
+                    document.body.appendChild(wrapper);
+                    
+                    await new Promise(r => setTimeout(r, 200)); 
+                    const canvas = await html2canvas(clone, { backgroundColor: null, scale: 1, useCORS: true, width: imageDimensions.width, height: imageDimensions.height });
+                    document.body.removeChild(wrapper);
+                    
+                    const link = document.createElement('a');
+                    link.download = `zanseki-${Date.now()}.png`;
+                    link.href = canvas.toDataURL('image/png');
+                    link.click();
+                } catch (e) { alert("保存に失敗しました: " + e.message); } 
+                finally { setSelectedId(wasSelected); setIsPickingColor(wasPicking); setIsSaving(false); }
+            };
+
+            const renderIcon = (mark) => {
+                const { type, style } = mark;
+                const common = { width: "100%", height: "100%", viewBox: "0 0 100 100", fill: "none", stroke: style.color, strokeWidth: style.thickness, strokeLinecap: "round", strokeLinejoin: "round", style: { filter: style.variant === 'hand' ? 'url(#rough-paper)' : 'none' } };
+                const double = { ...common, strokeWidth: Math.max(1, style.thickness / 3), strokeOpacity: 0.7, style: { filter: 'url(#rough-paper)', transform: 'translate(1px, 1px) rotate(1deg)' } };
+                
+                if (type === 'text') return (
+                    <div style={{ color: style.color, fontSize: `${style.size/2}px`, fontWeight: 'bold', fontFamily: style.variant === 'hand' ? '"Comic Sans MS", cursive' : 'sans-serif', whiteSpace: 'nowrap', transform: style.variant === 'hand' ? 'rotate(-2deg)' : 'none' }}>{mark.text}</div>
+                );
+
+                let content;
+                if (type === 'circle') content = <><ellipse cx="50" cy="50" rx="40" ry="40"/>{style.variant === 'hand' && <ellipse cx="50" cy="50" rx="39" ry="41" {...double}/>}</>;
+                else if (type === 'double-circle') content = <><ellipse cx="50" cy="50" rx="40" ry="40"/><ellipse cx="50" cy="50" rx="25" ry="25"/>{style.variant === 'hand' && <ellipse cx="51" cy="49" rx="39" ry="40" {...double}/>}</>;
+                else if (type === 'triangle') content = <><path d="M50 15 L85 85 L15 85 Z"/>{style.variant === 'hand' && <path d="M52 16 L84 83 L18 84 Z" {...double}/>}</>;
+                else if (type === 'cross') content = <><line x1="20" y1="20" x2="80" y2="80"/><line x1="80" y1="20" x2="20" y2="80"/>{style.variant === 'hand' && <line x1="22" y1="20" x2="82" y2="78" {...double}/>}</>;
+                else if (type === 'line') content = <><line x1="10" y1="50" x2="90" y2="50"/>{style.variant === 'hand' && <path d="M12 52 Q 50 48 88 51" fill="none" {...double}/>}</>;
+                return <svg {...common}>{content}</svg>;
+            };
+
+            return (
+                <div className="flex flex-col h-screen bg-bg-app text-text-main font-sans overflow-hidden transition-colors duration-200 animate-fade-in">
+                    <header className="h-16 border-b border-gray-200 bg-white/90 backdrop-blur-md flex items-center justify-between px-6 z-20 sticky top-0 shadow-sm">
+                        <div className="flex items-center gap-4">
+                            <button 
+                                onClick={onBack}
+                                className="text-text-sub hover:text-text-main transition-colors p-1 rounded-md hover:bg-gray-100"
+                            >
+                                <ChevronLeft className="w-5 h-5" />
+                            </button>
+                            <h1 className="font-bold text-lg tracking-tight text-text-main">残席情報メーカー</h1>
+                        </div>
+                        <button 
+                            onClick={handleDownload} 
+                            disabled={!image || isSaving} 
+                            className={`flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold text-sm shadow-soft transition-all active:scale-95 ${image ? 'bg-accent-highlight hover:bg-accent-hover text-white shadow-lg shadow-accent-highlight/20' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}`}
+                        >
+                            {isSaving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/> : <Download className="w-4 h-4" />}
+                            <span className="hidden sm:inline">{isSaving ? '保存中...' : '保存'}</span>
+                            <span className="sm:hidden">{isSaving ? '...' : '保存'}</span>
+                        </button>
+                    </header>
+
+                    <div className="flex flex-1 overflow-hidden flex-col md:flex-row">
+                        <aside className="w-full md:w-80 bg-bg-card border-t md:border-t-0 md:border-r border-gray-100 flex flex-col shrink-0 overflow-y-auto order-2 md:order-1 h-[45vh] md:h-full z-10 transition-colors duration-200 shadow-[2px_0_15px_rgba(0,0,0,0.02)]">
+                            <div className="p-6 border-b border-gray-100">
+                                <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-gray-200 rounded-2xl hover:border-accent-main hover:bg-bg-input transition-all cursor-pointer group bg-gray-50/50">
+                                    <Upload className="w-8 h-8 text-gray-400 group-hover:text-accent-main mb-2 transition-colors" />
+                                    <span className="text-sm font-medium text-text-sub group-hover:text-text-main">画像をアップロード</span>
+                                    <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+                                </label>
+                            </div>
+                            <div className="p-6 border-b border-gray-100 flex-1 space-y-8">
+                                <div>
+                                    <h2 className="text-xs font-bold text-text-sub uppercase tracking-wider mb-4 flex items-center gap-2"><Type className="w-4 h-4"/> スタンプ</h2>
+                                    
+                                    <div className="bg-bg-input p-3 rounded-2xl">
+                                        <div className="grid grid-cols-6 gap-2">
+                                            {[{t:'circle',l:'空席'},{t:'double-circle',l:'余裕'},{t:'triangle',l:'僅か'},{t:'cross',l:'完売'},{t:'line',l:'取消'},{t:'text',l:'文字'}].map(i=>(
+                                                <button key={i.t} onClick={()=>addMark(i.t)} disabled={!image} className="aspect-square border border-transparent rounded-xl flex flex-col items-center justify-center hover:bg-white hover:shadow-soft disabled:opacity-40 disabled:hover:shadow-none transition-all active:scale-95 text-text-main p-1">
+                                                    {renderIcon({type:i.t, style:{color: '#1e293b', thickness:10, size:24, variant:'clean'}, text:'Aa'})}
+                                                    <span className="text-[9px] text-text-label mt-0.5 font-bold leading-none scale-90 origin-top">{i.l}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div>
+                                    <h2 className="text-xs font-bold text-text-sub uppercase tracking-wider mb-4 flex items-center gap-2"><Palette className="w-4 h-4"/> スタイル</h2>
+                                    <div className="mb-6 bg-bg-input p-4 rounded-2xl border border-transparent">
+                                        <div className="flex gap-3 flex-wrap items-center">
+                                            <button onClick={handleEyedropper} className={`w-10 h-10 rounded-xl border flex items-center justify-center transition-all ${isPickingColor ? 'bg-accent-main border-accent-main text-white shadow-md' : 'bg-white border-gray-200 text-text-sub hover:text-text-main hover:border-gray-300'}`} title="スポイト">
+                                                <Pipette className="w-5 h-5"/>
+                                            </button>
+                                            <div className="w-px h-6 bg-gray-300 mx-1"></div>
+                                            {extractedColors.map((c,i)=><button key={i} onClick={()=>updateSelectedMarkStyle('color',c)} className={`w-8 h-8 rounded-full border border-black/5 shadow-sm transition-transform hover:scale-110 ${currentStyle.color===c?'ring-2 ring-accent-main ring-offset-2':''}`} style={{backgroundColor:c}}/>)}
+                                            {['#ffffff','#000000'].map(c=><button key={c} onClick={()=>updateSelectedMarkStyle('color',c)} className={`w-8 h-8 rounded-full border border-gray-200 shadow-sm transition-transform hover:scale-110 ${currentStyle.color===c?'ring-2 ring-accent-main ring-offset-2':''}`} style={{backgroundColor:c}}/>)}
+                                            <label className="w-10 h-10 rounded-xl bg-white border border-gray-200 flex items-center justify-center cursor-pointer overflow-hidden relative hover:border-gray-300 transition-colors">
+                                                <Palette className="w-5 h-5 text-text-sub relative z-10"/><input type="color" value={currentStyle.color} onChange={e=>updateSelectedMarkStyle('color',e.target.value)} onClick={e=>e.stopPropagation()} className="opacity-0 absolute inset-0 w-full h-full cursor-pointer"/>
+                                            </label>
+                                        </div>
+                                        {isPickingColor && <p className="text-xs text-accent-main mt-2 text-center font-medium animate-pulse">画像をタップして色を取得</p>}
+                                    </div>
+                                    
+                                    <div className="space-y-5">
+                                        <div className="bg-bg-input p-3 rounded-xl">
+                                            <div className="flex justify-between text-xs text-text-sub mb-2 font-medium"><span>太さ</span><span>{currentStyle.thickness}px</span></div>
+                                            <input type="range" min="1" max="50" value={currentStyle.thickness} onChange={e=>updateSelectedMarkStyle('thickness',parseInt(e.target.value))} onClick={e=>e.stopPropagation()} className="w-full"/>
+                                        </div>
+                                        <div className="bg-bg-input p-3 rounded-xl">
+                                            <div className="flex justify-between text-xs text-text-sub mb-2 font-medium"><span>サイズ</span><span>{currentStyle.size}px</span></div>
+                                            <input type="range" min="10" max="2000" value={currentStyle.size} onChange={e=>updateSelectedMarkStyle('size',parseInt(e.target.value))} onClick={e=>e.stopPropagation()} className="w-full"/>
+                                        </div>
+                                        <div>
+                                            <div className="flex bg-bg-input p-1 rounded-xl">
+                                                <button onClick={()=>updateSelectedMarkStyle('variant','clean')} className={`flex-1 py-2 text-xs font-medium rounded-lg transition-all ${currentStyle.variant==='clean'?'bg-white text-text-main shadow-sm':'text-text-sub hover:text-text-main'}`}>幾何学</button>
+                                                <button onClick={()=>updateSelectedMarkStyle('variant','hand')} className={`flex-1 py-2 text-xs font-medium rounded-lg transition-all ${currentStyle.variant==='hand'?'bg-white text-text-main shadow-sm':'text-text-sub hover:text-text-main'}`}>手書き風</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </aside>
+
+                        <main ref={workspaceRef} className={`flex-1 bg-bg-app relative overflow-hidden flex items-center justify-center p-4 order-1 md:order-2 transition-colors duration-200 ${isPickingColor ? 'cursor-crosshair' : ''}`} onPointerMove={handlePointerMove} onPointerUp={handlePointerUp} onPointerLeave={handlePointerUp} onClick={(e)=>{ if(!isPickingColor) setSelectedId(null); }}>
+                            {!image ? (
+                                <div className="text-center p-8">
+                                    <div className="w-24 h-24 bg-white rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-soft border border-gray-100">
+                                        <Upload className="w-10 h-10 text-gray-300"/>
+                                    </div>
+                                    <p className="text-lg font-bold text-text-main mb-2">デザインを作成</p>
+                                    <p className="text-sm text-text-sub">画像をアップロードして開始してください</p>
+                                </div>
+                            ) : (
+                                <div style={{ width: imageDimensions.width * scale, height: imageDimensions.height * scale, position: 'relative' }}>
+                                    <div ref={containerRef} className="absolute top-0 left-0 shadow-floating origin-top-left bg-white" style={{ width: imageDimensions.width, height: imageDimensions.height, transform: `scale(${scale})` }} onClick={(e)=>{ e.stopPropagation(); if(isPickingColor) pickColorFromImage(e); }}>
+                                        <svg style={{ position: 'absolute', width: 0, height: 0, pointerEvents: 'none' }}><defs><filter id="rough-paper"><feTurbulence type="fractalNoise" baseFrequency="0.08" numOctaves="2" result="noise"/><feDisplacementMap in="SourceGraphic" in2="noise" scale="4"/></filter></defs></svg>
+                                        <img ref={imageRef} src={image} alt="Base" className="absolute top-0 left-0 w-full h-full object-contain pointer-events-none"/>
+                                        {snapLines.map((l,i)=><div key={i} className="absolute bg-accent-main z-40 opacity-80" style={{left:l.type==='vertical'?l.x:0, top:l.type==='horizontal'?l.y:0, width:l.type==='vertical'?`${2/scale}px`:'100%', height:l.type==='horizontal'?`${2/scale}px`:'100%'}}/>)}
+                                        {marks.map(m=>(
+                                            <div key={m.id} className={`absolute flex items-center justify-center ${selectedId===m.id?'z-50':'z-10'} ${isPickingColor?'pointer-events-none':''}`} style={{left:m.x, top:m.y, width:m.type==='text'?'auto':m.style.size, height:m.type==='text'?'auto':m.style.size, transform:'translate(-50%, -50%)', touchAction:'none'}} onPointerDown={(e)=>handlePointerDown(e,m.id)} onClick={e=>e.stopPropagation()}>
+                                                {selectedId===m.id && !isPickingColor && <div className="absolute -inset-2 border-2 border-accent-highlight rounded-xl pointer-events-none animate-pulse opacity-70" style={{borderWidth:`${3/scale}px`}}/>}
+                                                <div className="w-full h-full pointer-events-none">{renderIcon(m)}</div>
+                                                {m.type==='text' && selectedId===m.id && !isPickingColor && <input type="text" value={m.text} onChange={e=>updateMark(m.id,{text:e.target.value})} className="absolute inset-0 w-full h-full bg-transparent text-transparent caret-accent-main focus:outline-none text-center" style={{fontSize:`${m.style.size/2}px`}} autoFocus/>}
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            {selectedId && !isPickingColor && (
+                                <div className="absolute bottom-6 bg-white border border-gray-100 rounded-2xl px-6 py-3 flex items-center gap-6 shadow-floating z-50 animate-[slide-up_0.2s_ease-out]">
+                                    <div className="flex items-center gap-2">
+                                        <div className="w-2 h-2 rounded-full bg-accent-highlight"></div>
+                                        <span className="text-xs font-bold text-text-sub">選択中</span>
+                                    </div>
+                                    <div className="w-px h-4 bg-gray-200"></div>
+                                    <button onClick={duplicateSelected} className="text-text-sub hover:text-text-main flex gap-1.5 items-center transition-colors"><Copy className="w-4 h-4"/><span className="text-sm font-medium">複製</span></button>
+                                    <button onClick={deleteSelected} className="text-red-400 hover:text-red-500 flex gap-1.5 items-center transition-colors"><Trash2 className="w-4 h-4"/><span className="text-sm font-medium">削除</span></button>
+                                </div>
+                            )}
+                        </main>
+                    </div>
+                </div>
+            );
+        };
+
+        // --- ルートコンポーネント (App) ---
+        const App = () => {
+            const [view, setView] = useState('home'); // 'home' | 'editor'
+
+            return (
+                <>
+                    {view === 'home' && <HomeScreen onStart={() => setView('editor')} />}
+                    {view === 'editor' && <EditorScreen onBack={() => setView('home')} />}
+                </>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
