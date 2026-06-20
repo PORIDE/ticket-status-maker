@@ -10,7 +10,7 @@
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     
     <!-- Babel (JSX変換用) -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone@7.23.6/babel.min.js"></script>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -120,10 +120,16 @@
 <body>
     <div id="root"></div>
 
-    <script type="text/babel">
-        /** @jsx React.createElement */
-        /** @jsxFrag React.Fragment */
-        
+    <script>
+        // Babel Standaloneの設定を上書きし、JSX変換でimportエラーが出ないようにする
+        Babel.registerPreset('my-react', {
+            presets: [
+                [Babel.availablePresets['react'], { runtime: 'classic' }]
+            ]
+        });
+    </script>
+
+    <script type="text/babel" data-presets="my-react">
         const { useState, useRef, useEffect } = React;
 
         // --- アイコンコンポーネント (Lucide互換SVG) ---
@@ -275,6 +281,38 @@
                 color: '#2C3E50', thickness: 8, size: 80, fontFamily: 'sans-serif', variant: 'clean'
             });
 
+            // --- ローカル保存機能の追加 ---
+            const STORAGE_KEY = 'zanseki-maker-save-data';
+
+            // 初回読み込み時に保存データを復元
+            useEffect(() => {
+                const savedData = localStorage.getItem(STORAGE_KEY);
+                if (savedData) {
+                    try {
+                        const data = JSON.parse(savedData);
+                        if (data.image) setImage(data.image);
+                        if (data.imageDimensions) setImageDimensions(data.imageDimensions);
+                        if (data.marks) setMarks(data.marks);
+                        if (data.extractedColors) setExtractedColors(data.extractedColors);
+                        if (data.currentStyle) setCurrentStyle(data.currentStyle);
+                    } catch (e) {
+                        console.error('Failed to load save data', e);
+                    }
+                }
+            }, []);
+
+            // 状態が変わるたびに保存（画像がある場合のみ）
+            useEffect(() => {
+                if (!image) return;
+                const dataToSave = { image, imageDimensions, marks, extractedColors, currentStyle };
+                try {
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
+                } catch (e) {
+                    console.warn('LocalStorage quota exceeded or save failed', e);
+                }
+            }, [image, imageDimensions, marks, extractedColors, currentStyle]);
+            // ------------------------------
+
             const handleImageUpload = (e) => {
                 const file = e.target.files[0];
                 if (file) {
@@ -319,6 +357,13 @@
                     if (imageDimensions.width) calculateScale(imageDimensions.width, imageDimensions.height);
                 };
                 window.addEventListener('resize', handleResize);
+                
+                // 復元直後など、画像サイズが設定されたタイミングでスケールを再計算する
+                // DOMのレイアウト完了を待つために少し遅延させる
+                if (imageDimensions.width) {
+                    setTimeout(handleResize, 50);
+                }
+                
                 return () => window.removeEventListener('resize', handleResize);
             }, [imageDimensions]);
 
